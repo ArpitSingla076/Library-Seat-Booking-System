@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: library-seat-booking-server
+    env: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRE
+        value: 1h
+      - key: CLIENT_URL        # your Vercel address, e.g. https://my-library.vercel.app (no slash at the end)
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: RAZORPAY_KEY_ID   # optional, for real payments
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
