@@ -1,0 +1,19 @@
+# Secrets: NEVER upload these (they hold your Atlas password and email password)
+.env
+**/.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+build/
+
+# Logs and system files
+logs/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
