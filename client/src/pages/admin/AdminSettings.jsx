@@ -82,7 +82,7 @@ export default function AdminSettings() {
         {mail && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, color: mail.configured ? 'var(--accent-green)' : 'var(--warn-tx)' }}>
             {mail.configured ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            {mail.configured ? `Connected to ${mail.host}. Sending as ${mail.from}` : 'Not set up: emails are only written to the server log. Add the SMTP_* lines to server/.env (see the README) and restart the server.'}
+            {mail.configured ? `Ready: sending through ${({ brevo: 'Brevo', resend: 'Resend', webhook: 'your Gmail (Apps Script relay)', smtp: `SMTP (${mail.host})` })[mail.provider] || mail.provider}. From: ${mail.from}` : 'Not set up: emails are only written to the server log. Add BREVO_API_KEY (or MAIL_WEBHOOK_URL) to the server settings and restart. See the README.'}
           </div>
         )}
         <div style={{ marginTop: '0.9rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>

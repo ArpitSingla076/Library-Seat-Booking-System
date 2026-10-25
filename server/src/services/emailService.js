@@ -26,29 +26,104 @@ try {
   logger.warn(`Email disabled (nodemailer unavailable): ${err.message}`);
 }
 
-const emailEnabled = () => Boolean(transporter);
+/**
+ * Providers (the first one that is configured wins):
+ *   BREVO_API_KEY        Brevo web API   (HTTPS)  free 300/day
+ *   RESEND_API_KEY       Resend web API  (HTTPS)  needs your own verified domain to email students
+ *   MAIL_WEBHOOK_URL     Gmail relay through a Google Apps Script web app (HTTPS), free, no domain needed
+ *   SMTP_HOST            classic SMTP. NOTE: hosts like Render's free plan block SMTP ports (25/465/587)
+ * HTTPS providers work on every host. SMTP is fine on your own computer.
+ */
+const providerName = () => {
+  if (process.env.BREVO_API_KEY) return 'brevo';
+  if (process.env.RESEND_API_KEY) return 'resend';
+  if (process.env.MAIL_WEBHOOK_URL) return 'webhook';
+  if (transporter) return 'smtp';
+  return null;
+};
+const emailEnabled = () => Boolean(providerName());
 const fromAddress = () => process.env.MAIL_FROM || process.env.SMTP_USER || 'BookMySeat <no-reply@library.local>';
+
+// "BookMySeat <a@b.com>"  ->  { name: 'BookMySeat', email: 'a@b.com' }
+const parseFrom = (from) => {
+  const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from);
+  return m ? { name: m[1].trim() || 'BookMySeat', email: m[2].trim() } : { name: 'BookMySeat', email: String(from).trim() };
+};
 
 const emailStatus = () => ({
   configured: emailEnabled(),
-  host: process.env.SMTP_HOST || null,
-  port: process.env.SMTP_HOST ? Number(process.env.SMTP_PORT) || 587 : null,
+  provider: providerName(),
+  host: providerName() === 'smtp' ? process.env.SMTP_HOST : null,
   from: fromAddress(),
 });
 
+// POST JSON with a timeout; returns { ok, status, text }
+const postJson = async (url, { headers = {}, body }) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+      redirect: 'follow',
+    });
+    return { ok: res.ok, status: res.status, text: await res.text() };
+  } catch (err) {
+    throw new Error(err.name === 'AbortError' ? 'The email service did not answer within 20 seconds' : err.message);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const senders = {
+  brevo: async ({ to, subject, text, html }) => {
+    const r = await postJson('https://api.brevo.com/v3/smtp/email', {
+      headers: { 'api-key': process.env.BREVO_API_KEY, accept: 'application/json' },
+      body: { sender: parseFrom(fromAddress()), to: [{ email: to }], subject, htmlContent: html, textContent: text },
+    });
+    if (!r.ok) throw new Error(`Brevo rejected the email (${r.status}): ${r.text.slice(0, 250)}`);
+  },
+  resend: async ({ to, subject, text, html }) => {
+    const r = await postJson('https://api.resend.com/emails', {
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      body: { from: fromAddress(), to: [to], subject, html, text },
+    });
+    if (!r.ok) throw new Error(`Resend rejected the email (${r.status}): ${r.text.slice(0, 250)}`);
+  },
+  // Google Apps Script web app that calls MailApp.sendEmail (see README: "Free email with your Gmail")
+  webhook: async ({ to, subject, text, html }) => {
+    const r = await postJson(process.env.MAIL_WEBHOOK_URL, {
+      body: { secret: process.env.MAIL_WEBHOOK_SECRET || '', to, subject, text, html, name: parseFrom(fromAddress()).name },
+    });
+    let data = null;
+    try { data = JSON.parse(r.text); } catch { /* not JSON */ }
+    if (!data) throw new Error('The Gmail relay did not answer correctly. In Apps Script, deploy it as a Web app with "Who has access: Anyone".');
+    if (!r.ok || !data.ok) throw new Error(`Gmail relay error: ${data.error || r.status}`);
+  },
+  smtp: async ({ to, subject, text, html }) => {
+    await transporter.sendMail({ from: fromAddress(), to, subject, text, html });
+  },
+};
+
 const sendMail = async ({ to, subject, text, html }) => {
   if (!to) return { sent: false, error: 'No recipient address' };
-  if (!transporter) {
-    logger.info(`[email NOT sent - SMTP not configured] to=${to} subject="${subject}"\n${text}`);
-    return { sent: false, error: 'SMTP is not configured' };
+  const provider = providerName();
+  if (!provider) {
+    logger.info(`[email NOT sent - no email provider configured] to=${to} subject="${subject}"\n${text}`);
+    return { sent: false, error: 'No email provider is configured' };
   }
   try {
-    await transporter.sendMail({ from: fromAddress(), to, subject, text, html });
-    logger.info(`Email sent to ${to}: ${subject}`);
-    return { sent: true };
+    await senders[provider]({ to, subject, text, html });
+    logger.info(`Email sent via ${provider} to ${to}: ${subject}`);
+    return { sent: true, provider };
   } catch (err) {
-    logger.error(`Email failed to ${to} ("${subject}"): ${err.message}`);
-    return { sent: false, error: err.message };
+    const hint = provider === 'smtp' && /timeout|ETIMEDOUT|ECONNREFUSED/i.test(err.message)
+      ? ' (Hosts like Render free block SMTP ports. Use BREVO_API_KEY or the Gmail relay instead.)'
+      : '';
+    logger.error(`Email failed via ${provider} to ${to} ("${subject}"): ${err.message}${hint}`);
+    return { sent: false, error: err.message + hint };
   }
 };
 
@@ -83,11 +158,15 @@ const sendBookingCancelledByAdmin = (user, booking, seat, reason) => deliver(use
 
 // Admin "send test email": waits for the result and reports the real error
 const sendTestEmail = async (user) => {
-  if (!transporter) return { sent: false, error: 'SMTP is not configured. Add the SMTP_* lines to server/.env and restart the server.' };
-  try {
-    await transporter.verify();
-  } catch (err) {
-    return { sent: false, error: `Could not log in to the mail server: ${err.message}` };
+  const provider = providerName();
+  if (!provider) return { sent: false, error: 'No email provider is set up yet. Add BREVO_API_KEY (or MAIL_WEBHOOK_URL, or the SMTP_* lines) to the server settings and restart. See the README.' };
+  if (provider === 'smtp') {
+    try {
+      await transporter.verify();
+    } catch (err) {
+      const hint = /timeout|ETIMEDOUT|ECONNREFUSED/i.test(err.message) ? ' Hosts like Render free block SMTP ports; use BREVO_API_KEY or the Gmail relay instead.' : '';
+      return { sent: false, error: `Could not connect to the mail server: ${err.message}.${hint}` };
+    }
   }
   const ctx = await getCtx();
   return sendMail({ to: user.email, ...T.testEmail({ user, ctx }) });
