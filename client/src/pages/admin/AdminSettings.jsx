@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { adminAPI, errorMessage } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Spinner, Field } from '../../components/ui';
 import { Mail, CheckCircle2, AlertTriangle } from 'lucide-react';
 
@@ -34,6 +35,8 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [holiday, setHoliday] = useState('');
   const [mail, setMail] = useState(null); // { configured, host, from }
+  const { user } = useAuth();
+  const [testTo, setTestTo] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
@@ -59,7 +62,7 @@ export default function AdminSettings() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await adminAPI.emailTest();
+      const res = await adminAPI.emailTest(testTo.trim());
       setTestResult(res.data);
       if (res.data.sent) toast.success(`Test email sent to ${res.data.to}`);
       else toast.error('Test email failed');
@@ -79,6 +82,11 @@ export default function AdminSettings() {
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0.8rem' }}>
           Students get an email when they book a seat, before check-in and check-out time, and when a fine is added.
         </p>
+        {user?.email?.endsWith('@library.edu') && (
+          <p style={{ fontSize: '0.78rem', color: 'var(--warn-tx)', marginBottom: '0.6rem' }}>
+            The demo admin address ({user.email}) does not really exist, so a test sent to it bounces. Type your own real email below.
+          </p>
+        )}
         {mail && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, color: mail.configured ? 'var(--accent-green)' : 'var(--warn-tx)' }}>
             {mail.configured ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
@@ -86,7 +94,8 @@ export default function AdminSettings() {
           </div>
         )}
         <div style={{ marginTop: '0.9rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" className="btn-primary" disabled={testing} onClick={sendTest}>{testing ? 'Sending...' : 'Send me a test email'}</button>
+          <input className="input" type="email" style={{ maxWidth: 300 }} placeholder={`Send to (empty = ${user?.email || 'admin email'})`} value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+          <button type="button" className="btn-primary" disabled={testing} onClick={sendTest}>{testing ? 'Sending...' : 'Send test email'}</button>
           {testResult && (
             <span style={{ fontSize: '0.82rem', color: testResult.sent ? 'var(--accent-green)' : 'var(--danger-text)' }}>
               {testResult.sent ? `Sent to ${testResult.to}. Check your inbox (and spam).` : testResult.error}
