@@ -200,12 +200,19 @@ router.put(
 );
 
 // GET /api/admin/email/status, POST /api/admin/email/test  - is email working?
-router.get('/email/status', (_req, res) => res.json({ success: true, ...email.emailStatus() }));
+router.get('/email/status', async (_req, res, next) => {
+  try {
+    res.json({ success: true, ...email.emailStatus(), ...(await email.emailLinkInfo()) });
+  } catch (err) { next(err); }
+});
 router.post('/email/test', async (req, res, next) => {
   try {
-    const result = await email.sendTestEmail(req.user);
-    audit(req, 'email.test', 'Email', '', result.sent ? `sent to ${req.user.email}` : `failed: ${result.error}`);
-    res.json({ success: true, ...result, to: req.user.email });
+    const typed = String(req.body.to || '').trim();
+    if (typed && !/^\S+@\S+\.\S+$/.test(typed)) return next(new AppError('That does not look like an email address.', 400));
+    const to = typed || req.user.email;
+    const result = await email.sendTestEmail(req.user, to);
+    audit(req, 'email.test', 'Email', '', result.sent ? `sent to ${to}` : `failed: ${result.error}`);
+    res.json({ success: true, ...result, to });
   } catch (err) { next(err); }
 });
 

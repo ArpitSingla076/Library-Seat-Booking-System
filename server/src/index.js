@@ -38,6 +38,10 @@ connectDB().then(async () => {
   for (const s of missing) {
     await Seat.updateOne({ _id: s._id }, { $set: { qrToken: crypto.randomBytes(12).toString('hex') } });
   }
+  const clientUrl = process.env.CLIENT_URL || '';
+  if (process.env.NODE_ENV === 'production' && (!clientUrl || /localhost|127\.0\.0\.1/.test(clientUrl))) {
+    logger.warn('CLIENT_URL is not your live website address, so buttons in emails may open the wrong page. Set CLIENT_URL on the server, or the Site address in Admin > Settings.');
+  }
   server.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
     startCronJobs();

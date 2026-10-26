@@ -127,6 +127,12 @@ const sendMail = async ({ to, subject, text, html }) => {
   }
 };
 
+// Where the buttons in emails open (Admin > Settings "Site address" wins over the CLIENT_URL setting)
+const emailLinkInfo = async () => {
+  const { site } = await getCtx();
+  return { siteUrl: site, siteIsLocal: /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(site) };
+};
+
 const getCtx = async () => {
   const settings = await getSettings();
   return {
@@ -157,7 +163,7 @@ const sendPaymentReceipt = (user, payment) => deliver(user.email, (ctx) => T.pay
 const sendBookingCancelledByAdmin = (user, booking, seat, reason) => deliver(user.email, (ctx) => T.cancelledByAdmin({ user, booking, seat, reason, ctx }));
 
 // Admin "send test email": waits for the result and reports the real error
-const sendTestEmail = async (user) => {
+const sendTestEmail = async (user, to) => {
   const provider = providerName();
   if (!provider) return { sent: false, error: 'No email provider is set up yet. Add BREVO_API_KEY (or MAIL_WEBHOOK_URL, or the SMTP_* lines) to the server settings and restart. See the README.' };
   if (provider === 'smtp') {
@@ -169,11 +175,11 @@ const sendTestEmail = async (user) => {
     }
   }
   const ctx = await getCtx();
-  return sendMail({ to: user.email, ...T.testEmail({ user, ctx }) });
+  return sendMail({ to: to || user.email, ...T.testEmail({ user, ctx }) });
 };
 
 module.exports = {
-  emailEnabled, emailStatus, sendMail, sendTestEmail,
+  emailEnabled, emailStatus, emailLinkInfo, sendMail, sendTestEmail,
   sendVerificationEmail, sendPasswordResetEmail, sendBookingConfirmation, sendRecurringConfirmation,
   sendBookingReminder, sendCheckoutReminder, sendFineAlert, sendPaymentReceipt, sendBookingCancelledByAdmin,
 };

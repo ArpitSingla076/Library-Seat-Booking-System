@@ -58,6 +58,16 @@ export default function AdminSettings() {
     finally { setSaving(false); }
   };
 
+  const useThisSite = async () => {
+    try {
+      const origin = window.location.origin;
+      const res = await adminAPI.updateSettings({ publicUrl: origin });
+      setS((p) => ({ ...p, publicUrl: res.data.settings.publicUrl })); // keep the form in sync so Save does not undo it
+      setMail((await adminAPI.emailStatus()).data);
+      toast.success(`Buttons in emails now open ${origin}`);
+    } catch (err) { toast.error(errorMessage(err)); }
+  };
+
   const sendTest = async () => {
     setTesting(true);
     setTestResult(null);
@@ -92,6 +102,15 @@ export default function AdminSettings() {
             {mail.configured ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
             {mail.configured ? `Ready: sending through ${({ brevo: 'Brevo', resend: 'Resend', webhook: 'your Gmail (Apps Script relay)', smtp: `SMTP (${mail.host})` })[mail.provider] || mail.provider}. From: ${mail.from}` : 'Not set up: emails are only written to the server log. Add BREVO_API_KEY (or MAIL_WEBHOOK_URL) to the server settings and restart. See the README.'}
           </div>
+        )}
+        {mail?.siteIsLocal && !['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+          <div style={{ marginTop: '0.8rem', fontSize: '0.82rem', color: 'var(--warn-tx)', background: 'var(--warn-bg)', border: '1px solid var(--warn-bd)', borderRadius: 8, padding: '0.7rem 0.9rem' }}>
+            Buttons in emails (such as "View my bookings" and "Pay fine") currently open <b>{mail.siteUrl}</b>, which is not your live website, so they will not work for students.
+            <div style={{ marginTop: '0.5rem' }}><button type="button" className="btn-primary" onClick={useThisSite}>Fix it: use {window.location.origin}</button></div>
+          </div>
+        )}
+        {mail && !mail.siteIsLocal && (
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Buttons in emails open: {mail.siteUrl}</p>
         )}
         <div style={{ marginTop: '0.9rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <input className="input" type="email" style={{ maxWidth: 300 }} placeholder={`Send to (empty = ${user?.email || 'admin email'})`} value={testTo} onChange={(e) => setTestTo(e.target.value)} />
